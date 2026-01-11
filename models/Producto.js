@@ -1,53 +1,18 @@
 const mongoose = require('mongoose');
 
 const productoSchema = new mongoose.Schema({
-    nombre: {
+    nombre: { type: String, required: true },
+    categoria: { type: String, required: true },
+    talla: { type: String },
+    precio: { type: Number, required: true },
+    stock: { type: Number, default: 0 },
+    marca: { type: String },
+    color: { type: String },
+    genero: { type: String },
+    imagen: {
         type: String,
-        required: [true, 'El nombre es requerido'],
-        trim: true
+        default: 'https://res.cloudinary.com/dsdsikein/image/upload/v1712345678/gu-shop/default-product.jpg'
     },
-    categoria: {
-        type: String,
-        default: 'General'
-    },
-    talla: {
-        type: String,
-        default: 'Única'
-    },
-    precio: {
-        type: Number,
-        required: [true, 'El precio es requerido'],
-        min: 0,
-        default: 0
-    },
-    stock: {
-        type: Number,
-        default: 0,
-        min: 0
-    },
-    marca: {
-        type: String,
-        default: 'Sin marca'
-    },
-    color: {
-        type: String,
-        default: 'Varios'
-    },
-    
-    descripcion: String,
-    imagen: String,
-    activo: {
-        type: Boolean,
-        default: true
-    },
-    
-    datos_originales: {
-        type: mongoose.Schema.Types.Mixed,
-        default: {}
-    }
-}, {
-    timestamps: true,
-    strict: false 
-});
-
+    activo: { type: Boolean, default: true }
+}, { timestamps: true });
 module.exports = mongoose.model('Producto', productoSchema);

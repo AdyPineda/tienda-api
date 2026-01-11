@@ -22,11 +22,14 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs, {
 const productosRoutes = require('./routes/productos');
 const clientesRoutes = require('./routes/clientes');
 const ventasRoutes = require('./routes/ventas');
+const authRoutes = require('./routes/authRoutes');
 
 // Usar rutas
 app.use('/api/productos', productosRoutes);
 app.use('/api/clientes', clientesRoutes);
 app.use('/api/ventas', ventasRoutes);
+app.use('/api/auth', authRoutes);
+app.use(cors());
 
 // Ruta principal
 app.get('/', (req, res) => {
@@ -123,3 +126,6 @@ app.get('/api/debug/productos', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
+// En server.js, después de las otras rutas:
+
