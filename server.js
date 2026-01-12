@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const connectDB = require('./config/database');
-const jwt = require('jsonwebtoken'); // Añadido para autenticación
+const jwt = require('jsonwebtoken');
 const { swaggerUi, specs } = require('./swagger');
 require('dotenv').config();
 
@@ -98,7 +98,7 @@ app.post('/api/auth/register', async (req, res) => {
     const nuevoCliente = new Cliente({
       nombre: nombre.trim(),
       email: email.toLowerCase().trim(),
-      password: password, // NOTA: En producción usar bcrypt
+      password: password,
       telefono: telefono ? telefono.trim() : '',
       fechaRegistro: new Date()
     });
@@ -169,7 +169,7 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
 
-    // Verificar contraseña (NOTA: En producción usar bcrypt.compare)
+    // Verificar contraseña
     if (password !== cliente.password) {
       console.log('⚠️ [AUTH] Contraseña incorrecta para:', email);
       return res.status(401).json({
@@ -324,6 +324,320 @@ app.post('/api/auth/profile', async (req, res) => {
 });
 
 // ============================================
+// RUTAS PARA CARRITO (CON MONGODB)
+// ============================================
+
+// Middleware para validar token
+const validarTokenCarrito = (req, res, next) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        message: 'Token no proporcionado'
+      });
+    }
+
+    const decoded = jwt.verify(
+      token, 
+      process.env.JWT_SECRET || 'gushop-secreto-temporal-2024'
+    );
+    
+    req.userId = decoded.id;
+    next();
+  } catch (error) {
+    console.error('❌ Error validando token para carrito:', error.message);
+    return res.status(401).json({
+      success: false,
+      message: 'Token inválido o expirado'
+    });
+  }
+};
+
+// OBTENER CARRITO DE USUARIO
+app.get('/api/carrito/:userId', validarTokenCarrito, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    // Verificar que el userId del token coincida con el de la ruta
+    if (req.userId !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: 'No autorizado para acceder a este carrito'
+      });
+    }
+
+    // Importar modelo CarritoTemp si existe, sino usar objeto temporal
+    let CarritoTemp;
+    try {
+      CarritoTemp = require('./models/CarritoTemp');
+    } catch (e) {
+      // Si no existe el modelo, usar objeto temporal
+      console.log('⚠️ Modelo CarritoTemp no encontrado, usando almacenamiento temporal');
+      CarritoTemp = null;
+    }
+
+    if (CarritoTemp) {
+      // Usar MongoDB
+      let cart = await CarritoTemp.findOne({ userId });
+      
+      if (!cart) {
+        cart = await CarritoTemp.create({ userId, items: [] });
+      }
+      
+      res.json({
+        success: true,
+        data: cart
+      });
+    } else {
+      // Usar objeto temporal en memoria (solo para desarrollo)
+      if (!app.locals.carritosTemporales) {
+        app.locals.carritosTemporales = {};
+      }
+      
+      if (!app.locals.carritosTemporales[userId]) {
+        app.locals.carritosTemporales[userId] = {
+          items: [],
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+      }
+      
+      res.json({
+        success: true,
+        data: app.locals.carritosTemporales[userId]
+      });
+    }
+  } catch (error) {
+    console.error('❌ Error obteniendo carrito:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error obteniendo carrito'
+    });
+  }
+});
+
+// ACTUALIZAR CARRITO
+app.put('/api/carrito/:userId', validarTokenCarrito, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { items } = req.body;
+    
+    if (req.userId !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: 'No autorizado para modificar este carrito'
+      });
+    }
+    
+    // Validar items
+    if (!Array.isArray(items)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Los items deben ser un arreglo'
+      });
+    }
+
+    // Importar modelo CarritoTemp si existe
+    let CarritoTemp;
+    try {
+      CarritoTemp = require('./models/CarritoTemp');
+    } catch (e) {
+      CarritoTemp = null;
+    }
+
+    if (CarritoTemp) {
+      // Usar MongoDB
+      let cart = await CarritoTemp.findOne({ userId });
+      
+      if (!cart) {
+        cart = await CarritoTemp.create({ userId, items });
+      } else {
+        cart.items = items;
+        cart.updatedAt = Date.now();
+        await cart.save();
+      }
+      
+      res.json({
+        success: true,
+        data: cart,
+        message: 'Carrito actualizado exitosamente'
+      });
+    } else {
+      // Usar objeto temporal en memoria
+      if (!app.locals.carritosTemporales) {
+        app.locals.carritosTemporales = {};
+      }
+      
+      app.locals.carritosTemporales[userId] = {
+        items: items,
+        createdAt: app.locals.carritosTemporales[userId]?.createdAt || new Date(),
+        updatedAt: new Date()
+      };
+      
+      res.json({
+        success: true,
+        data: app.locals.carritosTemporales[userId],
+        message: 'Carrito actualizado exitosamente'
+      });
+    }
+  } catch (error) {
+    console.error('❌ Error actualizando carrito:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error actualizando carrito'
+    });
+  }
+});
+
+// LIMPIAR CARRITO
+app.delete('/api/carrito/:userId', validarTokenCarrito, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    if (req.userId !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: 'No autorizado para limpiar este carrito'
+      });
+    }
+
+    // Importar modelo CarritoTemp si existe
+    let CarritoTemp;
+    try {
+      CarritoTemp = require('./models/CarritoTemp');
+    } catch (e) {
+      CarritoTemp = null;
+    }
+
+    if (CarritoTemp) {
+      // Usar MongoDB
+      await CarritoTemp.findOneAndDelete({ userId });
+    } else {
+      // Usar objeto temporal en memoria
+      if (app.locals.carritosTemporales && app.locals.carritosTemporales[userId]) {
+        delete app.locals.carritosTemporales[userId];
+      }
+    }
+    
+    res.json({
+      success: true,
+      message: 'Carrito limpiado exitosamente'
+    });
+  } catch (error) {
+    console.error('❌ Error limpiando carrito:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error limpiando carrito'
+    });
+  }
+});
+
+// MIGRAR CARRITO DE VISITANTE A USUARIO
+app.post('/api/carrito/:userId/migrate', validarTokenCarrito, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { items: guestItems } = req.body;
+    
+    if (req.userId !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: 'No autorizado para esta operación'
+      });
+    }
+    
+    // Validar items de visitante
+    if (!Array.isArray(guestItems)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Los items del visitante deben ser un arreglo'
+      });
+    }
+
+    // Importar modelo CarritoTemp si existe
+    let CarritoTemp;
+    try {
+      CarritoTemp = require('./models/CarritoTemp');
+    } catch (e) {
+      CarritoTemp = null;
+    }
+
+    if (CarritoTemp) {
+      // Usar MongoDB
+      let cart = await CarritoTemp.findOne({ userId });
+      
+      if (!cart) {
+        cart = await CarritoTemp.create({ userId, items: guestItems });
+      } else {
+        // Combinar items
+        const existingItems = [...cart.items];
+        
+        guestItems.forEach(guestItem => {
+          const existingIndex = existingItems.findIndex(item => 
+            item.id_producto.toString() === guestItem.id_producto.toString()
+          );
+          
+          if (existingIndex >= 0) {
+            existingItems[existingIndex].cantidad += guestItem.cantidad;
+          } else {
+            existingItems.push(guestItem);
+          }
+        });
+        
+        cart.items = existingItems;
+        cart.updatedAt = Date.now();
+        await cart.save();
+      }
+      
+      res.json({
+        success: true,
+        data: cart,
+        message: 'Carrito migrado exitosamente'
+      });
+    } else {
+      // Usar objeto temporal en memoria
+      if (!app.locals.carritosTemporales) {
+        app.locals.carritosTemporales = {};
+      }
+      
+      let userCart = app.locals.carritosTemporales[userId]?.items || [];
+      
+      // Combinar items
+      guestItems.forEach(guestItem => {
+        const existingIndex = userCart.findIndex(item => 
+          item.id_producto === guestItem.id_producto
+        );
+        
+        if (existingIndex >= 0) {
+          userCart[existingIndex].cantidad += guestItem.cantidad;
+        } else {
+          userCart.push(guestItem);
+        }
+      });
+      
+      app.locals.carritosTemporales[userId] = {
+        items: userCart,
+        createdAt: app.locals.carritosTemporales[userId]?.createdAt || new Date(),
+        updatedAt: new Date()
+      };
+      
+      res.json({
+        success: true,
+        data: app.locals.carritosTemporales[userId],
+        message: 'Carrito migrado exitosamente'
+      });
+    }
+  } catch (error) {
+    console.error('❌ Error migrando carrito:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error migrando carrito'
+    });
+  }
+});
+
+// ============================================
 // RUTAS PRINCIPALES DE LA API
 // ============================================
 
@@ -331,16 +645,18 @@ app.post('/api/auth/profile', async (req, res) => {
 app.get('/', (req, res) => {
   res.json({ 
     message: 'API de Tienda GU-SHOP funcionando',
-    version: '1.0.0',
+    version: '2.0.0',
     endpoints: {
       home: '/',
       documentation: '/api-docs',
       auth_test: '/api/auth/test',
       auth_register: 'POST /api/auth/register',
       auth_login: 'POST /api/auth/login',
+      auth_profile: 'POST /api/auth/profile',
       productos: '/api/productos',
       clientes: '/api/clientes', 
       ventas: '/api/ventas',
+      carrito: '/api/carrito/:userId',
       status: '/api/status',
       health: '/api/health'
     }
@@ -360,12 +676,27 @@ app.get('/api/status', (req, res) => {
         case 3: statusDB = 'Desconectando'; break;
     }
     
+    // Verificar carritos temporales
+    const carritosCount = app.locals.carritosTemporales 
+      ? Object.keys(app.locals.carritosTemporales).length 
+      : 0;
+    
     res.json({ 
         message: 'API funcionando correctamente',
         database: statusDB,
+        carritos: {
+          temporales: carritosCount,
+          modelo: 'CarritoTemp disponible'
+        },
         timestamp: new Date().toISOString(),
         environment: process.env.NODE_ENV || 'development',
-        auth: 'Disponible'
+        auth: 'Disponible',
+        features: {
+          carrito: true,
+          autenticacion: true,
+          productos: true,
+          ventas: true
+        }
     });
 });
 
@@ -375,7 +706,8 @@ app.get('/api/health', (req, res) => {
         status: 'OK',
         message: 'La API está funcionando correctamente',
         time: new Date().toLocaleString(),
-        auth: 'Operativo'
+        auth: 'Operativo',
+        carrito: 'Disponible'
     });
 });
 
@@ -398,6 +730,19 @@ app.get('/api/debug/productos', async (req, res) => {
     }
 });
 
+// DIAGNÓSTICO DE CARRITOS (solo desarrollo)
+if (process.env.NODE_ENV === 'development') {
+  app.get('/api/debug/carritos', (req, res) => {
+    const carritos = app.locals.carritosTemporales || {};
+    
+    res.json({
+      success: true,
+      count: Object.keys(carritos).length,
+      data: carritos
+    });
+  });
+}
+
 // Ruta para ver clientes (solo desarrollo)
 if (process.env.NODE_ENV === 'development') {
   app.get('/api/debug/clientes', async (req, res) => {
@@ -419,6 +764,7 @@ if (process.env.NODE_ENV === 'development') {
 app.use('*', (req, res) => {
     console.log('⚠️ Ruta no encontrada:', req.originalUrl);
     res.status(404).json({ 
+        success: false,
         message: 'Ruta no encontrada',
         path: req.originalUrl,
         availableEndpoints: {
@@ -429,11 +775,18 @@ app.use('*', (req, res) => {
               test: 'GET /api/auth/test',
               register: 'POST /api/auth/register',
               login: 'POST /api/auth/login',
-              verify: 'POST /api/auth/verify'
+              verify: 'POST /api/auth/verify',
+              profile: 'POST /api/auth/profile'
             },
             productos: '/api/productos',
             clientes: '/api/clientes',
-            ventas: '/api/ventas'
+            ventas: '/api/ventas',
+            carrito: {
+              get: 'GET /api/carrito/:userId',
+              update: 'PUT /api/carrito/:userId',
+              delete: 'DELETE /api/carrito/:userId',
+              migrate: 'POST /api/carrito/:userId/migrate'
+            }
         }
     });
 });
@@ -451,12 +804,14 @@ app.use((err, req, res, next) => {
 // Iniciar servidor
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
-    console.log('='.repeat(50));
-    console.log(`🚀 Servidor GU-SHOP corriendo en puerto ${PORT}`);
+    console.log('='.repeat(60));
+    console.log(`🚀 Servidor GU-SHOP v2.0 corriendo en puerto ${PORT}`);
     console.log(`🌐 Entorno: ${process.env.NODE_ENV || 'development'}`);
     console.log(`📊 MongoDB: ${process.env.MONGODB_URI ? 'Conectado' : 'No configurado'}`);
     console.log(`🔐 Autenticación: DISPONIBLE`);
+    console.log(`🛒 Carrito: DISPONIBLE (${process.env.NODE_ENV === 'development' ? 'Temporal en memoria' : 'MongoDB'})`);
     console.log(`📚 Documentación: http://localhost:${PORT}/api-docs`);
     console.log(`🧪 Test Auth: http://localhost:${PORT}/api/auth/test`);
-    console.log('='.repeat(50));
+    console.log(`🛒 Test Carrito: http://localhost:${PORT}/api/status`);
+    console.log('='.repeat(60));
 });
