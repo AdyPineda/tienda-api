@@ -47,20 +47,14 @@ app.get('/api/auth/test', (req, res) => {
   res.json({
     success: true,
     message: 'API de autenticación GU-SHOP funcionando ✓',
-    timestamp: new Date().toISOString(),
-    endpoints: {
-      register: 'POST /api/auth/register',
-      login: 'POST /api/auth/login',
-      verify: 'POST /api/auth/verify',
-      profile: 'POST /api/auth/profile'
-    }
+    timestamp: new Date().toISOString()
   });
 });
 
 // REGISTRO DE USUARIO
 app.post('/api/auth/register', async (req, res) => {
   console.log('📝 [AUTH] Registro recibido:', req.body.email);
-  
+
   try {
     const { nombre, email, password, telefono } = req.body;
 
@@ -72,21 +66,12 @@ app.post('/api/auth/register', async (req, res) => {
       });
     }
 
-    // Validar formato de email
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Formato de email inválido'
-      });
-    }
-
-    // Importar modelo Cliente
+    // Importar modelo Cliente (NO User)
     const Cliente = require('./models/Cliente');
 
     // Verificar si el usuario ya existe
     const clienteExistente = await Cliente.findOne({ email: email.toLowerCase().trim() });
-    
+
     if (clienteExistente) {
       return res.status(400).json({
         success: false,
@@ -94,25 +79,32 @@ app.post('/api/auth/register', async (req, res) => {
       });
     }
 
-    // Crear nuevo cliente
+    // Crear nuevo cliente (NO usuario)
     const nuevoCliente = new Cliente({
       nombre: nombre.trim(),
       email: email.toLowerCase().trim(),
-      password: password,
+      password: password, // En producción usar bcrypt
       telefono: telefono ? telefono.trim() : '',
-      fechaRegistro: new Date()
+      fechaRegistro: new Date(),
+      direccion: {
+        calle: '',
+        ciudad: '',
+        estado: '',
+        codigoPostal: '',
+        pais: 'México'
+      }
     });
 
-    // Guardar en la base de datos
+    // Guardar en la colección clientes
     await nuevoCliente.save();
-    console.log('✅ [AUTH] Usuario creado en MongoDB:', nuevoCliente.email);
+    console.log('✅ [AUTH] Cliente creado en MongoDB:', nuevoCliente.email);
 
     // Generar token JWT
     const token = jwt.sign(
-      { 
+      {
         id: nuevoCliente._id,
         email: nuevoCliente.email,
-        nombre: nuevoCliente.nombre 
+        nombre: nuevoCliente.nombre
       },
       process.env.JWT_SECRET || 'gushop-secreto-temporal-2024',
       { expiresIn: '30d' }
@@ -136,7 +128,7 @@ app.post('/api/auth/register', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error interno del servidor al registrar usuario',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      error: error.message // Mostrar error para debugging
     });
   }
 });
@@ -144,7 +136,7 @@ app.post('/api/auth/register', async (req, res) => {
 // LOGIN DE USUARIO
 app.post('/api/auth/login', async (req, res) => {
   console.log('🔐 [AUTH] Login recibido:', req.body.email);
-  
+
   try {
     const { email, password } = req.body;
 
@@ -158,11 +150,11 @@ app.post('/api/auth/login', async (req, res) => {
     // Importar modelo Cliente
     const Cliente = require('./models/Cliente');
 
-    // Buscar cliente
+    // Buscar cliente en colección clientes
     const cliente = await Cliente.findOne({ email: email.toLowerCase().trim() });
-    
+
     if (!cliente) {
-      console.log('⚠️ [AUTH] Usuario no encontrado:', email);
+      console.log('⚠️ [AUTH] Cliente no encontrado:', email);
       return res.status(401).json({
         success: false,
         message: 'Usuario no encontrado'
@@ -180,10 +172,10 @@ app.post('/api/auth/login', async (req, res) => {
 
     // Generar token JWT
     const token = jwt.sign(
-      { 
+      {
         id: cliente._id,
         email: cliente.email,
-        nombre: cliente.nombre 
+        nombre: cliente.nombre
       },
       process.env.JWT_SECRET || 'gushop-secreto-temporal-2024',
       { expiresIn: '30d' }
@@ -209,7 +201,7 @@ app.post('/api/auth/login', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error interno del servidor al iniciar sesión',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      error: error.message
     });
   }
 });
@@ -217,10 +209,10 @@ app.post('/api/auth/login', async (req, res) => {
 // VERIFICAR TOKEN
 app.post('/api/auth/verify', async (req, res) => {
   console.log('🔍 [AUTH] Verificando token...');
-  
+
   try {
     const token = req.body.token || req.headers.authorization?.split(' ')[1];
-    
+
     if (!token) {
       return res.status(401).json({
         success: false,
@@ -230,16 +222,16 @@ app.post('/api/auth/verify', async (req, res) => {
 
     // Verificar token
     const decoded = jwt.verify(
-      token, 
+      token,
       process.env.JWT_SECRET || 'gushop-secreto-temporal-2024'
     );
 
     // Importar modelo Cliente
     const Cliente = require('./models/Cliente');
-    
+
     // Buscar usuario
     const cliente = await Cliente.findById(decoded.id).select('-password');
-    
+
     if (!cliente) {
       return res.status(404).json({
         success: false,
@@ -256,14 +248,14 @@ app.post('/api/auth/verify', async (req, res) => {
 
   } catch (error) {
     console.error('❌ [AUTH] Error verificando token:', error.message);
-    
+
     if (error.name === 'JsonWebTokenError') {
       return res.status(401).json({
         success: false,
         message: 'Token inválido'
       });
     }
-    
+
     if (error.name === 'TokenExpiredError') {
       return res.status(401).json({
         success: false,
@@ -282,7 +274,7 @@ app.post('/api/auth/verify', async (req, res) => {
 app.post('/api/auth/profile', async (req, res) => {
   try {
     const token = req.body.token || req.headers.authorization?.split(' ')[1];
-    
+
     if (!token) {
       return res.status(401).json({
         success: false,
@@ -292,16 +284,16 @@ app.post('/api/auth/profile', async (req, res) => {
 
     // Verificar token
     const decoded = jwt.verify(
-      token, 
+      token,
       process.env.JWT_SECRET || 'gushop-secreto-temporal-2024'
     );
 
     // Importar modelo Cliente
     const Cliente = require('./models/Cliente');
-    
+
     // Buscar usuario
     const cliente = await Cliente.findById(decoded.id).select('-password');
-    
+
     if (!cliente) {
       return res.status(404).json({
         success: false,
@@ -323,6 +315,8 @@ app.post('/api/auth/profile', async (req, res) => {
   }
 });
 
+
+
 // ============================================
 // RUTAS PARA CARRITO (CON MONGODB)
 // ============================================
@@ -331,7 +325,7 @@ app.post('/api/auth/profile', async (req, res) => {
 const validarTokenCarrito = (req, res, next) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
-    
+
     if (!token) {
       return res.status(401).json({
         success: false,
@@ -340,10 +334,10 @@ const validarTokenCarrito = (req, res, next) => {
     }
 
     const decoded = jwt.verify(
-      token, 
+      token,
       process.env.JWT_SECRET || 'gushop-secreto-temporal-2024'
     );
-    
+
     req.userId = decoded.id;
     next();
   } catch (error) {
@@ -359,7 +353,7 @@ const validarTokenCarrito = (req, res, next) => {
 app.get('/api/carrito/:userId', validarTokenCarrito, async (req, res) => {
   try {
     const { userId } = req.params;
-    
+
     // Verificar que el userId del token coincida con el de la ruta
     if (req.userId !== userId) {
       return res.status(403).json({
@@ -381,11 +375,11 @@ app.get('/api/carrito/:userId', validarTokenCarrito, async (req, res) => {
     if (CarritoTemp) {
       // Usar MongoDB
       let cart = await CarritoTemp.findOne({ userId });
-      
+
       if (!cart) {
         cart = await CarritoTemp.create({ userId, items: [] });
       }
-      
+
       res.json({
         success: true,
         data: cart
@@ -395,7 +389,7 @@ app.get('/api/carrito/:userId', validarTokenCarrito, async (req, res) => {
       if (!app.locals.carritosTemporales) {
         app.locals.carritosTemporales = {};
       }
-      
+
       if (!app.locals.carritosTemporales[userId]) {
         app.locals.carritosTemporales[userId] = {
           items: [],
@@ -403,7 +397,7 @@ app.get('/api/carrito/:userId', validarTokenCarrito, async (req, res) => {
           updatedAt: new Date()
         };
       }
-      
+
       res.json({
         success: true,
         data: app.locals.carritosTemporales[userId]
@@ -423,14 +417,14 @@ app.put('/api/carrito/:userId', validarTokenCarrito, async (req, res) => {
   try {
     const { userId } = req.params;
     const { items } = req.body;
-    
+
     if (req.userId !== userId) {
       return res.status(403).json({
         success: false,
         message: 'No autorizado para modificar este carrito'
       });
     }
-    
+
     // Validar items
     if (!Array.isArray(items)) {
       return res.status(400).json({
@@ -450,7 +444,7 @@ app.put('/api/carrito/:userId', validarTokenCarrito, async (req, res) => {
     if (CarritoTemp) {
       // Usar MongoDB
       let cart = await CarritoTemp.findOne({ userId });
-      
+
       if (!cart) {
         cart = await CarritoTemp.create({ userId, items });
       } else {
@@ -458,7 +452,7 @@ app.put('/api/carrito/:userId', validarTokenCarrito, async (req, res) => {
         cart.updatedAt = Date.now();
         await cart.save();
       }
-      
+
       res.json({
         success: true,
         data: cart,
@@ -469,13 +463,13 @@ app.put('/api/carrito/:userId', validarTokenCarrito, async (req, res) => {
       if (!app.locals.carritosTemporales) {
         app.locals.carritosTemporales = {};
       }
-      
+
       app.locals.carritosTemporales[userId] = {
         items: items,
         createdAt: app.locals.carritosTemporales[userId]?.createdAt || new Date(),
         updatedAt: new Date()
       };
-      
+
       res.json({
         success: true,
         data: app.locals.carritosTemporales[userId],
@@ -495,7 +489,7 @@ app.put('/api/carrito/:userId', validarTokenCarrito, async (req, res) => {
 app.delete('/api/carrito/:userId', validarTokenCarrito, async (req, res) => {
   try {
     const { userId } = req.params;
-    
+
     if (req.userId !== userId) {
       return res.status(403).json({
         success: false,
@@ -520,7 +514,7 @@ app.delete('/api/carrito/:userId', validarTokenCarrito, async (req, res) => {
         delete app.locals.carritosTemporales[userId];
       }
     }
-    
+
     res.json({
       success: true,
       message: 'Carrito limpiado exitosamente'
@@ -539,14 +533,14 @@ app.post('/api/carrito/:userId/migrate', validarTokenCarrito, async (req, res) =
   try {
     const { userId } = req.params;
     const { items: guestItems } = req.body;
-    
+
     if (req.userId !== userId) {
       return res.status(403).json({
         success: false,
         message: 'No autorizado para esta operación'
       });
     }
-    
+
     // Validar items de visitante
     if (!Array.isArray(guestItems)) {
       return res.status(400).json({
@@ -566,30 +560,30 @@ app.post('/api/carrito/:userId/migrate', validarTokenCarrito, async (req, res) =
     if (CarritoTemp) {
       // Usar MongoDB
       let cart = await CarritoTemp.findOne({ userId });
-      
+
       if (!cart) {
         cart = await CarritoTemp.create({ userId, items: guestItems });
       } else {
         // Combinar items
         const existingItems = [...cart.items];
-        
+
         guestItems.forEach(guestItem => {
-          const existingIndex = existingItems.findIndex(item => 
+          const existingIndex = existingItems.findIndex(item =>
             item.id_producto.toString() === guestItem.id_producto.toString()
           );
-          
+
           if (existingIndex >= 0) {
             existingItems[existingIndex].cantidad += guestItem.cantidad;
           } else {
             existingItems.push(guestItem);
           }
         });
-        
+
         cart.items = existingItems;
         cart.updatedAt = Date.now();
         await cart.save();
       }
-      
+
       res.json({
         success: true,
         data: cart,
@@ -600,28 +594,28 @@ app.post('/api/carrito/:userId/migrate', validarTokenCarrito, async (req, res) =
       if (!app.locals.carritosTemporales) {
         app.locals.carritosTemporales = {};
       }
-      
+
       let userCart = app.locals.carritosTemporales[userId]?.items || [];
-      
+
       // Combinar items
       guestItems.forEach(guestItem => {
-        const existingIndex = userCart.findIndex(item => 
+        const existingIndex = userCart.findIndex(item =>
           item.id_producto === guestItem.id_producto
         );
-        
+
         if (existingIndex >= 0) {
           userCart[existingIndex].cantidad += guestItem.cantidad;
         } else {
           userCart.push(guestItem);
         }
       });
-      
+
       app.locals.carritosTemporales[userId] = {
         items: userCart,
         createdAt: app.locals.carritosTemporales[userId]?.createdAt || new Date(),
         updatedAt: new Date()
       };
-      
+
       res.json({
         success: true,
         data: app.locals.carritosTemporales[userId],
@@ -643,7 +637,7 @@ app.post('/api/carrito/:userId/migrate', validarTokenCarrito, async (req, res) =
 
 // Ruta principal
 app.get('/', (req, res) => {
-  res.json({ 
+  res.json({
     message: 'API de Tienda GU-SHOP funcionando',
     version: '2.0.0',
     endpoints: {
@@ -654,7 +648,7 @@ app.get('/', (req, res) => {
       auth_login: 'POST /api/auth/login',
       auth_profile: 'POST /api/auth/profile',
       productos: '/api/productos',
-      clientes: '/api/clientes', 
+      clientes: '/api/clientes',
       ventas: '/api/ventas',
       carrito: '/api/carrito/:userId',
       status: '/api/status',
@@ -665,76 +659,76 @@ app.get('/', (req, res) => {
 
 // Ruta de estado de la API y base de datos
 app.get('/api/status', (req, res) => {
-    const mongoose = require('mongoose');
-    const dbStatus = mongoose.connection.readyState;
-    
-    let statusDB = 'Desconocido';
-    switch(dbStatus) {
-        case 0: statusDB = 'Desconectado'; break;
-        case 1: statusDB = 'Conectado'; break;
-        case 2: statusDB = 'Conectando'; break;
-        case 3: statusDB = 'Desconectando'; break;
+  const mongoose = require('mongoose');
+  const dbStatus = mongoose.connection.readyState;
+
+  let statusDB = 'Desconocido';
+  switch (dbStatus) {
+    case 0: statusDB = 'Desconectado'; break;
+    case 1: statusDB = 'Conectado'; break;
+    case 2: statusDB = 'Conectando'; break;
+    case 3: statusDB = 'Desconectando'; break;
+  }
+
+  // Verificar carritos temporales
+  const carritosCount = app.locals.carritosTemporales
+    ? Object.keys(app.locals.carritosTemporales).length
+    : 0;
+
+  res.json({
+    message: 'API funcionando correctamente',
+    database: statusDB,
+    carritos: {
+      temporales: carritosCount,
+      modelo: 'CarritoTemp disponible'
+    },
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development',
+    auth: 'Disponible',
+    features: {
+      carrito: true,
+      autenticacion: true,
+      productos: true,
+      ventas: true
     }
-    
-    // Verificar carritos temporales
-    const carritosCount = app.locals.carritosTemporales 
-      ? Object.keys(app.locals.carritosTemporales).length 
-      : 0;
-    
-    res.json({ 
-        message: 'API funcionando correctamente',
-        database: statusDB,
-        carritos: {
-          temporales: carritosCount,
-          modelo: 'CarritoTemp disponible'
-        },
-        timestamp: new Date().toISOString(),
-        environment: process.env.NODE_ENV || 'development',
-        auth: 'Disponible',
-        features: {
-          carrito: true,
-          autenticacion: true,
-          productos: true,
-          ventas: true
-        }
-    });
+  });
 });
 
 // Ruta de salud simple
 app.get('/api/health', (req, res) => {
-    res.json({ 
-        status: 'OK',
-        message: 'La API está funcionando correctamente',
-        time: new Date().toLocaleString(),
-        auth: 'Operativo',
-        carrito: 'Disponible'
-    });
+  res.json({
+    status: 'OK',
+    message: 'La API está funcionando correctamente',
+    time: new Date().toLocaleString(),
+    auth: 'Operativo',
+    carrito: 'Disponible'
+  });
 });
 
 // Ruta temporal para diagnosticar productos
 app.get('/api/debug/productos', async (req, res) => {
-    try {
-        const mongoose = require('mongoose');
-        const db = mongoose.connection.db;
-        
-        // Obtener datos directamente de la colección
-        const productosRaw = await db.collection('productos').find({}).toArray();
-        
-        res.json({
-            message: 'Datos RAW de la colección productos',
-            count: productosRaw.length,
-            data: productosRaw
-        });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+  try {
+    const mongoose = require('mongoose');
+    const db = mongoose.connection.db;
+
+    // Obtener datos directamente de la colección
+    const productosRaw = await db.collection('productos').find({}).toArray();
+
+    res.json({
+      message: 'Datos RAW de la colección productos',
+      count: productosRaw.length,
+      data: productosRaw
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // DIAGNÓSTICO DE CARRITOS (solo desarrollo)
 if (process.env.NODE_ENV === 'development') {
   app.get('/api/debug/carritos', (req, res) => {
     const carritos = app.locals.carritosTemporales || {};
-    
+
     res.json({
       success: true,
       count: Object.keys(carritos).length,
@@ -762,56 +756,56 @@ if (process.env.NODE_ENV === 'development') {
 
 // Manejo de rutas no encontradas
 app.use('*', (req, res) => {
-    console.log('⚠️ Ruta no encontrada:', req.originalUrl);
-    res.status(404).json({ 
-        success: false,
-        message: 'Ruta no encontrada',
-        path: req.originalUrl,
-        availableEndpoints: {
-            home: '/',
-            status: '/api/status', 
-            health: '/api/health',
-            auth: {
-              test: 'GET /api/auth/test',
-              register: 'POST /api/auth/register',
-              login: 'POST /api/auth/login',
-              verify: 'POST /api/auth/verify',
-              profile: 'POST /api/auth/profile'
-            },
-            productos: '/api/productos',
-            clientes: '/api/clientes',
-            ventas: '/api/ventas',
-            carrito: {
-              get: 'GET /api/carrito/:userId',
-              update: 'PUT /api/carrito/:userId',
-              delete: 'DELETE /api/carrito/:userId',
-              migrate: 'POST /api/carrito/:userId/migrate'
-            }
-        }
-    });
+  console.log('⚠️ Ruta no encontrada:', req.originalUrl);
+  res.status(404).json({
+    success: false,
+    message: 'Ruta no encontrada',
+    path: req.originalUrl,
+    availableEndpoints: {
+      home: '/',
+      status: '/api/status',
+      health: '/api/health',
+      auth: {
+        test: 'GET /api/auth/test',
+        register: 'POST /api/auth/register',
+        login: 'POST /api/auth/login',
+        verify: 'POST /api/auth/verify',
+        profile: 'POST /api/auth/profile'
+      },
+      productos: '/api/productos',
+      clientes: '/api/clientes',
+      ventas: '/api/ventas',
+      carrito: {
+        get: 'GET /api/carrito/:userId',
+        update: 'PUT /api/carrito/:userId',
+        delete: 'DELETE /api/carrito/:userId',
+        migrate: 'POST /api/carrito/:userId/migrate'
+      }
+    }
+  });
 });
 
 // Manejo de errores global
 app.use((err, req, res, next) => {
-    console.error('❌ Error global:', err.stack);
-    res.status(500).json({ 
-        success: false,
-        message: 'Error interno del servidor',
-        error: process.env.NODE_ENV === 'development' ? err.message : 'Contacta al administrador'
-    });
+  console.error('❌ Error global:', err.stack);
+  res.status(500).json({
+    success: false,
+    message: 'Error interno del servidor',
+    error: process.env.NODE_ENV === 'development' ? err.message : 'Contacta al administrador'
+  });
 });
 
 // Iniciar servidor
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
-    console.log('='.repeat(60));
-    console.log(`🚀 Servidor GU-SHOP v2.0 corriendo en puerto ${PORT}`);
-    console.log(`🌐 Entorno: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`📊 MongoDB: ${process.env.MONGODB_URI ? 'Conectado' : 'No configurado'}`);
-    console.log(`🔐 Autenticación: DISPONIBLE`);
-    console.log(`🛒 Carrito: DISPONIBLE (${process.env.NODE_ENV === 'development' ? 'Temporal en memoria' : 'MongoDB'})`);
-    console.log(`📚 Documentación: http://localhost:${PORT}/api-docs`);
-    console.log(`🧪 Test Auth: http://localhost:${PORT}/api/auth/test`);
-    console.log(`🛒 Test Carrito: http://localhost:${PORT}/api/status`);
-    console.log('='.repeat(60));
+  console.log('='.repeat(60));
+  console.log(`🚀 Servidor GU-SHOP v2.0 corriendo en puerto ${PORT}`);
+  console.log(`🌐 Entorno: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`📊 MongoDB: ${process.env.MONGODB_URI ? 'Conectado' : 'No configurado'}`);
+  console.log(`🔐 Autenticación: DISPONIBLE`);
+  console.log(`🛒 Carrito: DISPONIBLE (${process.env.NODE_ENV === 'development' ? 'Temporal en memoria' : 'MongoDB'})`);
+  console.log(`📚 Documentación: http://localhost:${PORT}/api-docs`);
+  console.log(`🧪 Test Auth: http://localhost:${PORT}/api/auth/test`);
+  console.log(`🛒 Test Carrito: http://localhost:${PORT}/api/status`);
+  console.log('='.repeat(60));
 });
