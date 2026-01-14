@@ -1,60 +1,49 @@
-// backend/models/Cliente.js (debería existir ya)
+
 const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
 
 const clienteSchema = new mongoose.Schema({
   nombre: {
     type: String,
-    required: [true, 'El nombre es requerido'],
+    required: true,
     trim: true
   },
+
   email: {
     type: String,
-    required: [true, 'El email es requerido'],
+    required: true,
     unique: true,
     lowercase: true,
     trim: true
   },
   password: {
     type: String,
-    required: [true, 'La contraseña es requerida'],
-    minlength: [6, 'La contraseña debe tener al menos 6 caracteres']
+    required: true
   },
-  telefono: String,
+  telefono: {
+    type: String,
+    default: ''
+  },
   direccion: {
     calle: String,
     ciudad: String,
+    estado: String,
     codigoPostal: String,
-    estado: String
+    pais: {
+      type: String,
+      default: 'México'
+    }
   },
   fechaRegistro: {
     type: Date,
     default: Date.now
-  },
-  activo: {
-    type: Boolean,
-    default: true
   }
 }, {
   timestamps: true
 });
 
-// Hash password antes de guardar
-clienteSchema.pre('save', async function(next) {
-  if (!this.isModified('password')) return next();
-  
-  try {
-    const salt = await bcrypt.genSalt(10);
-    this.password = await bcrypt.hash(this.password, salt);
-    next();
-  } catch (error) {
-    next(error);
-  }
-});
 
-// Método para comparar passwords
-clienteSchema.methods.comparePassword = async function(candidatePassword) {
-  return await bcrypt.compare(candidatePassword, this.password);
-};
+clienteSchema.virtual('correo').get(function() {
+  return this.email;
+});
 
 module.exports = mongoose.model('Cliente', clienteSchema);
