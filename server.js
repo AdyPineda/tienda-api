@@ -36,7 +36,7 @@ const ventasRoutes = require('./routes/ventas');
 // Usar rutas
 app.use('/api/productos', productosRoutes);
 app.use('/api/clientes', clientesRoutes);
-app.use('/api/ventas', ventasRoutes);
+app.use('/api/ventas', ventasRoutes); 
 
 // ============================================
 // RUTAS DE AUTENTICACIÓN DIRECTAS
