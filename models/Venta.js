@@ -1,49 +1,99 @@
+// models/Venta.js - VERSIÓN MEJORADA
 const mongoose = require('mongoose');
 
 const ventaSchema = new mongoose.Schema({
-    id_cliente: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Cliente',
-        required: true
+  cliente: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Cliente',
+    required: true
+  },
+  productos: [{
+    producto: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Producto',
+      required: true
     },
-    fecha: {
-        type: Date,
-        default: Date.now
+    nombre: {
+      type: String,
+      required: true
     },
-    productos: [{
-        id_producto: {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: 'Producto',
-            required: true
-        },
-        cantidad: {
-            type: Number,
-            required: true,
-            min: 1
-        },
-        subtotal: {
-            type: Number,
-            required: true,
-            min: 0
-        }
-    }],
-    total: {
-        type: Number,
-        required: true,
-        min: 0
+    precio: {
+      type: Number,
+      required: true,
+      min: 0
     },
-    metodo_pago: {
-        type: String,
-        required: true,
-        enum: ['efectivo', 'tarjeta', 'transferencia', 'paypal']
+    cantidad: {
+      type: Number,
+      required: true,
+      min: 1,
+      default: 1
+    },
+    subtotal: {
+      type: Number,
+      required: true,
+      min: 0
     }
+  }],
+  subtotal: {
+    type: Number,
+    required: true,
+    min: 0
+  },
+  envio: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
+  total: {
+    type: Number,
+    required: true,
+    min: 0
+  },
+  estado: {
+    type: String,
+    required: true,
+    enum: ['pendiente', 'procesando', 'enviado', 'entregado', 'cancelado'],
+    default: 'pendiente'
+  },
+  metodoPago: {
+    type: String,
+    required: true,
+    enum: ['efectivo', 'tarjeta_credito', 'tarjeta_debito', 'paypal', 'transferencia']
+  },
+  direccionEnvio: {
+    calle: String,
+    ciudad: String,
+    estado: String,
+    codigoPostal: String,
+    pais: {
+      type: String,
+      default: 'México'
+    }
+  },
+  notas: {
+    type: String,
+    default: ''
+  }
 }, {
-    timestamps: true
+  timestamps: true
 });
 
+// Calcular subtotal y total antes de guardar
 ventaSchema.pre('save', function(next) {
-    this.total = this.productos.reduce((sum, producto) => sum + producto.subtotal, 0);
-    next();
+  // Calcular subtotal de productos
+  this.subtotal = this.productos.reduce((sum, producto) => {
+    return sum + (producto.precio * producto.cantidad);
+  }, 0);
+  
+  // Calcular total (subtotal + envio)
+  this.total = this.subtotal + this.envio;
+  
+  next();
+});
+
+// Virtual para información del cliente
+ventaSchema.virtual('clienteInfo').get(function() {
+  return `${this.cliente?.nombre || 'Cliente'} - ${this.cliente?.email || ''}`;
 });
 
 module.exports = mongoose.model('Venta', ventaSchema);
